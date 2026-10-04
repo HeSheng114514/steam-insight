@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Steam 洞察 · Steam Insight",
+  "version": "1.0.0",
+  "description": "在 Steam 商店页与列表页显示：家庭库、DLC、Xbox Game Pass、Denuvo(D加密)、Steam Deck / ProtonDB、反作弊、中文支持、多区价格与通关时长。",
+  "minimum_chrome_version": "109",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://store.steampowered.com/*",
+    "https://api.steampowered.com/*",
+    "https://steamcommunity.com/*",
+    "https://www.protondb.com/*",
+    "https://raw.githubusercontent.com/*",
+    "https://cdn.jsdelivr.net/*",
+    "https://howlongtobeat.com/*",
+    "https://catalog.gamepass.com/*",
+    "https://displaycatalog.mp.microsoft.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://store.steampowered.com/app/*",
+        "https://store.steampowered.com/search/*",
+        "https://store.steampowered.com/wishlist/*",
+        "https://store.steampowered.com/sale/*",
+        "https://store.steampowered.com/explore/*",
+        "https://store.steampowered.com/tags/*",
+        "https://store.steampowered.com/dlc/*",
+        "https://store.steampowered.com/bundle/*",
+        "https://store.steampowered.com/curator/*",
+        "https://store.steampowered.com/publisher/*",
+        "https://store.steampowered.com/developer/*",
+        "https://store.steampowered.com/specials*",
+        "https://store.steampowered.com/vr/*"
+      ],
+      "js": ["src/content/content.js"],
+      "css": ["src/content/content.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "options_page": "src/options.html",
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Steam 洞察",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  }
+}

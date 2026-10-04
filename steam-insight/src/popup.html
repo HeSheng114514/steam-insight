@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Steam 洞察</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        width: 268px;
+        margin: 0;
+        padding: 14px 16px 16px;
+        background: #1b2838;
+        color: #c7d5e0;
+        font: 13px/1.6 Arial, "Microsoft YaHei", sans-serif;
+      }
+      h1 { font-size: 15px; margin: 0 0 10px; color: #66c0f4; }
+      .kv { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,.07); }
+      .kv span:first-child { color: #8ba6ba; }
+      button {
+        width: 100%; margin-top: 8px; background: #2c3e50; color: #c7d5e0;
+        border: 1px solid #2a475e; border-radius: 4px; padding: 7px; cursor: pointer; font: inherit; font-size: 12px;
+      }
+      button:hover { background: #3d5a75; color: #fff; }
+      button.primary { background: #1a9fff; border-color: #1a9fff; color: #fff; }
+      #msg { margin-top: 10px; color: #a9d9f5; font-size: 12px; min-height: 16px; }
+      .hint { color: #8ba6ba; font-size: 12px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Steam 洞察</h1>
+    <div class="kv"><span>当前页面</span><span id="pageType">检查中…</span></div>
+    <div class="kv"><span>插件状态</span><span id="enabled">—</span></div>
+    <div class="kv"><span>列表页查 D 加密</span><span id="deep">—</span></div>
+    <button class="primary" id="reload">刷新当前页数据</button>
+    <button id="clear">清空缓存</button>
+    <button id="options">打开设置</button>
+    <div id="msg"></div>
+    <div class="hint">在 Steam 游戏页右侧可看到完整面板；列表页会在每个游戏下方显示徽章。</div>
+    <script src="popup.js"></script>
+  </body>
+</html>

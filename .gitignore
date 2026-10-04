@@ -1,0 +1,19 @@
+# 构建产物：通过 GitHub Release 分发，不提交进仓库
+dist/
+*.zip
+
+# 抓取的测试数据：Steam 商店页 HTML 属 Valve 内容，不入库
+# 克隆后用 steam-insight-dev/fetch_fixtures.mjs 重新抓取
+steam-insight-dev/fixtures/*.html
+steam-insight-dev/fixtures/*.json
+steam-insight-dev/fixtures/*.tmp
+
+# 本地更新日志：按项目要求不上传到 GitHub
+GitHub更新日志*
+GitHub.txt
+
+# 临时目录与系统文件
+_probe/
+.DS_Store
+Thumbs.db
+desktop.ini

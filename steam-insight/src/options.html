@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Steam 洞察 · 设置</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 24px 28px 60px;
+        background: #1b2838;
+        color: #c7d5e0;
+        font: 14px/1.6 "Motiva Sans", Arial, "Microsoft YaHei", sans-serif;
+      }
+      h1 { font-size: 20px; color: #66c0f4; margin: 0 0 4px; }
+      .sub { color: #8ba6ba; margin-bottom: 22px; font-size: 13px; }
+      section {
+        background: #213347;
+        border: 1px solid #2a475e;
+        border-radius: 6px;
+        padding: 16px 18px;
+        margin-bottom: 16px;
+        max-width: 780px;
+      }
+      h2 { font-size: 15px; margin: 0 0 12px; color: #e3eef7; }
+      label.row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 7px 0;
+        border-bottom: 1px dashed rgba(255,255,255,.07);
+        cursor: pointer;
+      }
+      label.row:last-child { border-bottom: none; }
+      input[type="checkbox"] { margin-top: 4px; accent-color: #66c0f4; }
+      .row-text strong { display: block; color: #e3eef7; font-weight: 600; }
+      .row-text small { color: #8ba6ba; }
+      .regions { display: flex; flex-wrap: wrap; gap: 8px; }
+      .regions label {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: #2c3e50; border: 1px solid #2a475e; border-radius: 4px;
+        padding: 5px 10px; cursor: pointer;
+      }
+      button {
+        background: #2c3e50; color: #c7d5e0; border: 1px solid #2a475e;
+        border-radius: 4px; padding: 7px 14px; cursor: pointer; font: inherit; font-size: 13px;
+      }
+      button:hover { background: #3d5a75; color: #fff; }
+      button.primary { background: #1a9fff; border-color: #1a9fff; color: #fff; }
+      button.primary:hover { background: #4cb4ff; }
+      .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      pre#status {
+        background: rgba(0,0,0,.3); border: 1px solid #2a475e; border-radius: 4px;
+        padding: 12px; margin: 12px 0 0; white-space: pre-wrap; word-break: break-word;
+        font-size: 12px; color: #a9d9f5; min-height: 20px; max-width: 780px;
+      }
+      .note { color: #8ba6ba; font-size: 12px; margin-top: 8px; }
+      select { background: #2c3e50; color: #c7d5e0; border: 1px solid #2a475e; border-radius: 4px; padding: 5px 8px; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <h1>Steam 洞察 · 设置</h1>
+    <div class="sub">在 Steam 商店页与列表页显示家庭库、DLC、Xbox Game Pass、Denuvo(D 加密) 等信息。</div>
+
+    <section>
+      <h2>显示位置</h2>
+      <label class="row">
+        <input type="checkbox" id="enabled" />
+        <span class="row-text"><strong>启用插件</strong><small>关闭后所有页面都不再注入任何内容。</small></span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="showOnDetailPage" />
+        <span class="row-text"><strong>游戏详情页显示完整面板</strong><small>store.steampowered.com/app/*</small></span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="showOnListPages" />
+        <span class="row-text"><strong>列表页显示徽章</strong><small>愿望单 / 搜索 / 特卖 / 标签页，按行滚动到时才查询。</small></span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="listDenuvoLookup" />
+        <span class="row-text">
+          <strong>列表页也查询 D 加密</strong>
+          <small>D 加密只能从商店页 HTML 里读，开启后每个可见行会各拉一次商店页（结果缓存 24 小时）。关掉可以明显减少流量。</small>
+        </span>
+      </label>
+    </section>
+
+    <section>
+      <h2>数据源</h2>
+      <label class="row">
+        <input type="checkbox" id="fetchXgp" />
+        <span class="row-text">
+          <strong>Xbox Game Pass（PC）</strong>
+          <small>首次启用会从微软官方接口拉取完整 Game Pass PC 库并缓存 12 小时，下载量约 30 MB，之后每次查询都是本地匹配。</small>
+        </span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="fetchProton" />
+        <span class="row-text"><strong>ProtonDB 兼容评级</strong><small>www.protondb.com 的评分摘要接口。</small></span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="fetchAnticheat" />
+        <span class="row-text">
+          <strong>反作弊检测（EAC / BattlEye / 内核级）</strong>
+          <small>数据来自社区项目 AreWeAntiCheatYet，缓存 24 小时。“内核级”是按反作弊名称白名单标注的，不是官方字段。</small>
+        </span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="fetchHltb" />
+        <span class="row-text"><strong>通关时长（HowLongToBeat）</strong><small>按游戏英文名搜索，取主线 / 主线+支线 / 全收集。</small></span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="fetchFamilyGroup" />
+        <span class="row-text">
+          <strong>我的 Steam 家庭组是否已有该游戏</strong>
+          <small>需要已登录 Steam：读取 webapi_token 后调用 IFamilyGroupsService，结果缓存 15 分钟。未登录时只会显示“支持家庭共享”标记。</small>
+        </span>
+      </label>
+      <div class="row-text" style="margin-top:10px">
+        <strong>商店语言</strong>
+        <small>影响名称与“中文支持”的判定文本。</small>
+        <div style="margin-top:6px">
+          <select id="storeLanguage">
+            <option value="schinese">简体中文</option>
+            <option value="tchinese">繁体中文</option>
+            <option value="english">English</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>多区价格对比</h2>
+      <div class="regions" id="regions"></div>
+      <div class="note">阿根廷与土耳其自 2023 年 11 月起已改为美元计价；价格与可购买性以 Steam 返回为准，锁区游戏可能显示“无价格”。</div>
+    </section>
+
+    <section>
+      <h2>缓存与自检</h2>
+      <div class="actions">
+        <button id="btnStatus">检查数据源可用性</button>
+        <button id="btnStats">查看缓存占用</button>
+        <button id="btnClear">清空缓存</button>
+        <button id="btnSave" class="primary">保存设置</button>
+      </div>
+      <pre id="status">点上面的按钮开始检查。</pre>
+    </section>
+
+    <script src="options.js"></script>
+  </body>
+</html>
