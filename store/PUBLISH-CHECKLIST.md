@@ -30,26 +30,37 @@ Edge 开发者后台：<https://partner.microsoft.com/dashboard/microsoftedge>
 ## 第 1 步：打包
 
 ```powershell
-cd D:\DeepSeek-Harness\D-插件
+cd "D:\DeepSeek-Harness\D-Steam插件（Steam 洞察）"
 & 'C:\Users\Sheng\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe' build\build_packages.py
 ```
 
-产出：
+产出（版本号以 manifest.json 为准，下面是 1.1.0）：
 
 ```
-dist\steam-insight-1.0.0-chrome.zip
-dist\steam-insight-1.0.0-edge.zip
+dist\steam-insight-1.1.0-chrome.zip
+dist\steam-insight-1.1.0-edge.zip
 ```
 
-两个文件内容完全相同（只是名字不同），分别上传到对应后台即可。脚本自带自检，会确认：`manifest.json` 在 ZIP 根目录、manifest 引用的每个文件都在包里、没有反斜杠路径、没有把开发测试文件打进去。**看到 `✓ 自检通过` 再上传。**
+两个文件内容完全相同（只是名字不同），分别上传到对应后台即可。脚本自带自检，会确认：`manifest.json` 在 ZIP 根目录、manifest 引用的每个文件都在包里、没有反斜杠路径、没有把开发测试文件打进去、权限都在白名单内、DNR 规则真的注入了 Referer。**看到 `✓ 自检通过` 再上传。**
 
 > 注意：ZIP 里**不能**再套一层 `steam-insight/` 文件夹，这是最常见的被拒原因。脚本已经处理好了。
+
+### v1.1.0 相对 v1.0.0 的改动（提交时要一起改的地方）
+
+| 项目 | 变化 |
+| --- | --- |
+| 版本号 | `1.0.0` → `1.1.0` |
+| 新增权限 | `declarativeNetRequest`（**必须在隐私规范页新增一条权限用途说明**，见 `LISTING.md` 第 5.2 节） |
+| 新增文件 | `src/rules.json`（DNR 规则）、`src/lib/xlsx.js` |
+| 功能 | 修复通关时长取不到；新增导出 TXT 与 Excel |
+
+**如果已经在商店上架过 1.0.0**：上传新版本后，务必去「隐私规范」页补上 `declarativeNetRequest` 的用途说明，否则可能被以「权限用途未说明」退回。
 
 ---
 
 ## 第 2 步：提交到 Chrome 应用商店
 
-1. 进后台 → **新增项目** → 上传 `steam-insight-1.0.0-chrome.zip`。
+1. 进后台 → **新增项目** → 上传 `steam-insight-1.1.0-chrome.zip`。
 2. **商店信息**标签页：
    - 名称、简短说明、详细说明 → 从 `store/LISTING.md` 第 1、2 节复制；
    - 类别：购物；

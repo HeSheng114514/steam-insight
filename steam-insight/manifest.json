@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Steam 洞察 · Steam Insight",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "在 Steam 商店页与列表页显示：家庭库、DLC、Xbox Game Pass、Denuvo(D加密)、Steam Deck / ProtonDB、反作弊、中文支持、多区价格与通关时长。",
   "minimum_chrome_version": "109",
   "icons": {
@@ -13,7 +13,8 @@
   "permissions": [
     "storage",
     "unlimitedStorage",
-    "alarms"
+    "alarms",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://store.steampowered.com/*",
@@ -26,6 +27,15 @@
     "https://catalog.gamepass.com/*",
     "https://displaycatalog.mp.microsoft.com/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "howlongtobeat_referer",
+        "enabled": true,
+        "path": "src/rules.json"
+      }
+    ]
+  },
   "background": {
     "service_worker": "src/background.js",
     "type": "module"

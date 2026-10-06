@@ -102,6 +102,31 @@
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 
+  /** 从 base64 还原二进制并下载（用于后台生成的 .xlsx） */
+  function downloadBase64(filename, base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = el('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  function fileName(data, ext) {
+    const safe = String(data.name || data.appid)
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .slice(0, 50);
+    return `steam-${data.appid}-${safe}.${ext}`;
+  }
+
   /* ---------------------------------------------------------------- */
   /* 页面探测                                                          */
   /* ---------------------------------------------------------------- */
@@ -147,8 +172,11 @@
 
     const actions = el('span', 'si-head-actions');
     const buttons = [
-      ['copy', '复制'],
-      ['json', '导出 JSON'],
+      ['copy', '复制 Markdown'],
+      ['txt', 'TXT'],
+      ['xlsx', 'Excel'],
+      ['json', 'JSON'],
+      ['settings', '设置'],
       ['refresh', '刷新'],
       ['toggle', '收起'],
     ];
@@ -156,6 +184,7 @@
       const b = el('button', 'si-btn', label);
       b.type = 'button';
       b.dataset.act = act;
+      if (act === 'settings') b.title = '打开 Steam 洞察设置';
       if (act === 'toggle') b.classList.add('si-toggle');
       actions.appendChild(b);
     }
@@ -316,10 +345,19 @@
       const fmt = (v) => (v ? `${Math.round((v / 3600) * 10) / 10} 小时` : '—');
       addRow(
         '通关时长',
-        `主线 ${fmt(h.main)} / 主线+支线 ${fmt(h.mainExtra)} / 全收集 ${fmt(h.completionist)}${
-          h.match === 'approx' ? '（近似匹配）' : ''
-        }`
+        `主线 ${fmt(h.main)} / 主线+支线 ${fmt(h.mainExtra)} / 全收集 ${fmt(h.completionist)}`,
+        h.match === 'steam-id' ? 'ok' : 'unknown'
       );
+      if (h.match !== 'steam-id') {
+        addRow(
+          '时长匹配',
+          h.match === 'approx' ? '按名称近似匹配，可能不是同一个版本' : '按名称匹配，未用 Steam AppID 核对',
+          'unknown'
+        );
+      }
+    } else if (data.hltb === null || data.hltb === undefined) {
+      // 显式说明为什么没有这一行，避免用户以为是插件坏了
+      addRow('通关时长', '未取到（HowLongToBeat 无数据或被限流，10 分钟后自动重试）', 'unknown');
     }
     if (data.meta && data.meta.releaseDate && data.meta.releaseDate.date) {
       addRow('发行日期', data.meta.releaseDate.date);
@@ -411,14 +449,35 @@
         const res = await send({ type: 'export:markdown', data: lastData });
         if (res && res.text) await copyText(res.text, '已复制 Markdown 到剪贴板');
         else toast('复制失败');
+      } else if (act === 'txt') {
+        if (!lastData) return;
+        const res = await send({ type: 'export:text', data: lastData });
+        if (res && res.text) {
+          download(fileName(lastData, 'txt'), res.text, 'text/plain;charset=utf-8');
+          toast('已导出 TXT');
+        } else toast('导出失败');
+      } else if (act === 'xlsx') {
+        if (!lastData) return;
+        btn.disabled = true;
+        toast('正在生成 Excel…');
+        const res = await send({ type: 'export:xlsx', data: lastData });
+        btn.disabled = false;
+        if (res && res.base64) {
+          downloadBase64(fileName(lastData, 'xlsx'), res.base64);
+          toast('已导出 Excel');
+        } else toast(`导出失败${res && res.error ? '：' + res.error : ''}`);
       } else if (act === 'json') {
         if (!lastData) return;
         const res = await send({ type: 'export:json', data: lastData });
         if (res && res.text) {
-          const name = (lastData.name || lastData.appid).toString().replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
-          download(`steam-${lastData.appid}-${name}.json`, res.text);
+          download(fileName(lastData, 'json'), res.text, 'application/json;charset=utf-8');
           toast('已导出 JSON');
         } else toast('导出失败');
+      } else if (act === 'settings') {
+        // 内容脚本不能直接调 openOptionsPage()，必须让后台代开
+        const res = await send({ type: 'options:open' });
+        if (res && res.ok) toast('已打开设置页');
+        else toast(`打开设置失败${res && res.error ? '：' + res.error : ''}`);
       } else if (act === 'refresh') {
         if (!currentAppId) return;
         setPanelLoading();

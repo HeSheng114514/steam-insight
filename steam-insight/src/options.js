@@ -97,7 +97,20 @@ document.getElementById('btnStatus').addEventListener('click', async () => {
     `AreWeAntiCheatYet：${res.awacy.ok ? `✅ ${res.awacy.entries} 条` : '❌ 拉取失败'}`,
     `Xbox Game Pass 索引：${res.xgp.ok ? `✅ ${res.xgp.entries} 款` : '❌ 拉取失败'}`,
     `ProtonDB：${res.proton ? '✅ 可用' : '❌ 失败'}`,
-    `HowLongToBeat：${res.hltb ? '✅ 可用' : '❌ 失败（可能被 CDN 限流，稍后重试）'}`,
+    `HowLongToBeat：${
+      res.hltb
+        ? res.hltbVerified
+          ? '✅ 可用（已用 Steam AppID 核对）'
+          : '✅ 可用（名称匹配）'
+        : '❌ 失败'
+    }`,
+    `Referer 注入规则（DNR）：${
+      Array.isArray(res.dnrRulesets)
+        ? res.dnrRulesets.includes('howlongtobeat_referer')
+          ? '✅ 已启用'
+          : '❌ 未启用（HLTB 会失败）'
+        : '— 无法读取'
+    }`,
     `家庭组：${
       {
         ok: '✅ 已获取共享库',

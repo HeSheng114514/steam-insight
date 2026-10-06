@@ -2,6 +2,12 @@
 dist/
 *.zip
 
+# 签名私钥与本地打包产物
+# .pem 绝不能上传：别人拿到就能给同一个扩展 ID 签名
+*.pem
+*.crx
+.crx-staging/
+
 # 抓取的测试数据：Steam 商店页 HTML 属 Valve 内容，不入库
 # 克隆后用 steam-insight-dev/fetch_fixtures.mjs 重新抓取
 steam-insight-dev/fixtures/*.html

@@ -1,7 +1,7 @@
 # 隐私政策 / Privacy Policy
 
 **Steam 洞察 · Steam Insight** 浏览器扩展
-最后更新：2026-10-04
+最后更新：2026-10-06（v1.1.0）
 
 > 提交商店时需要一个可公开访问的网址（Chrome 应用商店必填）。把本文件内容发布到
 > GitHub Pages / Gist / 你自己的站点后，把 URL 填进开发者后台即可。
@@ -55,7 +55,12 @@
 | `storage` | 保存设置与查询缓存 |
 | `unlimitedStorage` | Game Pass 与反作弊索引数据量较大，需要更多本地空间 |
 | `alarms` | 定期清理过期缓存 |
+| `declarativeNetRequest` | 仅用一条规则给 `howlongtobeat.com` 的请求补上 `Referer` 头（该站 CDN 要求如此，否则拒绝服务；`Referer` 是浏览器接管的请求头，脚本无法自行设置）。规则只作用于该域名，不读取也不修改任何页面内容 |
 | 各站点访问权限 | 仅用于上表列出的接口与页面，读取游戏信息 |
+
+### 导出功能
+
+面板上的「复制 Markdown / TXT / Excel / JSON」是在**你本机**生成文件的，直接触发浏览器下载，不经过任何服务器。生成 Excel 时用到的表格代码随扩展一同打包（`src/lib/xlsx.js`），没有任何远程代码或外部服务参与。
 
 ### 变更与联系
 
@@ -97,6 +102,20 @@ No accounts, no extra sign-in, no browsing-history collection, no analytics or t
 ### Local storage
 
 Settings and query caches are kept in `chrome.storage.local` on your machine. You can clear them from the options page at any time; uninstalling the extension removes them.
+
+### Exports
+
+The "Copy Markdown / TXT / Excel / JSON" buttons generate files **locally** and trigger a normal browser download. Nothing is sent to any server. The spreadsheet code used for Excel export ships inside the extension (`src/lib/xlsx.js`); there is no remote code and no external service involved.
+
+### Permissions
+
+| Permission | Purpose |
+| --- | --- |
+| `storage` | Save settings and query caches |
+| `unlimitedStorage` | The Game Pass and anti-cheat indexes need more local space |
+| `alarms` | Periodically prune expired cache entries |
+| `declarativeNetRequest` | One rule only: add the `Referer` header to `howlongtobeat.com` requests (that site's CDN requires it and rejects requests without it; `Referer` is a browser-controlled header that scripts cannot set). It applies to that domain only and never reads or modifies page content |
+| Host permissions | Used only for the endpoints and pages listed above, to read game information |
 
 ### Contact
 

@@ -59,6 +59,26 @@ export function hltbInitUrl() {
 export const HLTB_SEARCH_URL = 'https://howlongtobeat.com/api/search/site';
 export const HLTB_REFERER = 'https://howlongtobeat.com/';
 
+/**
+ * HowLongToBeat 的反爬要求 Referer 必须是它自己的域，否则 CDN 直接 403
+ * （实测：只带 User-Agent 时 init 稳定 403，加上 Referer 立刻 200）。
+ *
+ * Referer 属于浏览器接管的禁止请求头，在 fetch 里设置会被静默忽略，
+ * 所以必须通过 manifest 的 declarativeNetRequest 规则注入，见 src/rules.json。
+ * 这条规则已用真实浏览器 + CDP 实测验证有效。
+ */
+export const HLTB_RULE_ID = 'howlongtobeat_referer';
+
+/** HLTB 页面的浏览器特征头 */
+export const HLTB_BROWSER_HEADERS = {
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+};
+
+export function hltbGameUrl(gameId) {
+  return `https://howlongtobeat.com/game/${gameId}`;
+}
+
 /** HLTB 搜索请求体（已实测可用） */
 export function hltbSearchBody(name, page = 1, size = 10) {
   const terms = String(name)
@@ -313,6 +333,80 @@ export function parseHltbSearch(json, expectedName) {
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* HowLongToBeat：服务端渲染页面（__NEXT_DATA__）                       */
+/* ------------------------------------------------------------------ */
+
+/** 从 HTML 里取出 Next.js 的内联 JSON */
+export function extractNextData(html) {
+  if (!html || typeof html !== 'string') return null;
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+}
+
+/** 在任意嵌套结构里找出所有"看起来像 HLTB 游戏记录"的数组 */
+export function findHltbGameArrays(node, out = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) {
+    if (node.length && node[0] && typeof node[0] === 'object' && 'game_id' in node[0]) {
+      out.push(node);
+    }
+    for (const item of node) findHltbGameArrays(item, out);
+    return out;
+  }
+  for (const value of Object.values(node)) findHltbGameArrays(value, out);
+  return out;
+}
+
+/**
+ * 把一条 HLTB 原始记录转成统一结构。
+ * 注意：game/{id} 页面同时带 profile_steam（= Steam AppID），
+ * 这比按名字匹配可靠得多。
+ */
+export function toHltbEntry(raw, match = 'exact') {
+  if (!raw) return null;
+  return {
+    gameId: raw.game_id,
+    name: raw.game_name,
+    type: raw.game_type || 'game',
+    match,
+    steamAppid: raw.profile_steam ? String(raw.profile_steam) : null,
+    main: num(raw.comp_main),
+    mainExtra: num(raw.comp_plus),
+    completionist: num(raw.comp_100),
+    all: num(raw.comp_all),
+    mainCount: num(raw.comp_main_count),
+    releaseWorld: raw.release_world || null,
+  };
+}
+
+/**
+ * 从游戏页 HTML 解析时长。
+ * 优先用 profile_steam 与期望 AppID 核对，避免页面串号。
+ */
+export function parseHltbGamePage(html, expectedAppid) {
+  const data = extractNextData(html);
+  if (!data) return null;
+  const arrays = findHltbGameArrays(data?.props?.pageProps ?? {});
+  for (const arr of arrays) {
+    for (const raw of arr) {
+      if (!raw || !raw.game_id) continue;
+      if (expectedAppid && raw.profile_steam && String(raw.profile_steam) !== String(expectedAppid)) {
+        continue;
+      }
+      if (num(raw.comp_main) || num(raw.comp_plus) || num(raw.comp_100)) {
+        return toHltbEntry(raw, 'steam-id');
+      }
+    }
+  }
+  return null;
 }
 
 /** 秒 → 小时字符串（统一保留一位小数，避免同一时长在不同位置显示不一致） */

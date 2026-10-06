@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url';
 
 import * as S from '../steam-insight/src/lib/steam.js';
 import * as TP from '../steam-insight/src/lib/sources.js';
+import * as F from '../steam-insight/src/lib/format.js';
+import * as X from '../steam-insight/src/lib/xlsx.js';
 import { toMarkdown, toJson } from '../steam-insight/src/lib/format.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -218,6 +220,133 @@ section('URL 构造');
   check('共享库接口含 include_excluded', S.familySharedLibraryUrl('tok', 5).includes('include_excluded=true'));
   check('XGP SIGL 带 platformContext=pc', TP.xgpSiglUrl().includes('platformContext=pc'));
   check('HLTB body 按空格分词', JSON.stringify(TP.hltbSearchBody('Elden Ring').searchTerms) === '["Elden","Ring"]');
+  check('HLTB 游戏页 URL', TP.hltbGameUrl(68151) === 'https://howlongtobeat.com/game/68151');
+  check('HLTB 规则 ID 常量', TP.HLTB_RULE_ID === 'howlongtobeat_referer');
+}
+
+/* ================================================================== */
+/* HowLongToBeat：服务端渲染页面解析（__NEXT_DATA__）                   */
+/* ================================================================== */
+
+section('HLTB 页面解析');
+{
+  // 真实结构：props.pageProps.game.data.game[0]，且带 profile_steam = Steam AppID
+  const html = `<!DOCTYPE html><html><body>
+<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+    props: {
+      pageProps: {
+        game: {
+          data: {
+            game: [
+              {
+                game_id: 68151,
+                game_name: 'Elden Ring',
+                game_type: 'game',
+                profile_steam: 1245620,
+                comp_main: 216436,
+                comp_plus: 365048,
+                comp_100: 490307,
+                comp_main_count: 1500,
+              },
+            ],
+          },
+        },
+      },
+    },
+  })}</script>
+</body></html>`;
+
+  const parsed = TP.parseHltbGamePage(html, 1245620);
+  check('能解出 __NEXT_DATA__', !!TP.extractNextData(html));
+  check('解析成功', !!parsed);
+  eq('game_id', parsed.gameId, 68151);
+  eq('主线时长', parsed.main, 216436);
+  eq('全收集时长', parsed.completionist, 490307);
+  eq('带出 Steam AppID', parsed.steamAppid, '1245620');
+  eq('来源标记为 steam-id', parsed.match, 'steam-id');
+
+  // AppID 不匹配时必须拒绝，避免同名作品串号
+  eq('AppID 不符时返回 null', TP.parseHltbGamePage(html, 999999), null);
+  eq('无 __NEXT_DATA__ 返回 null', TP.parseHltbGamePage('<html></html>', 1245620), null);
+  eq('坏 JSON 返回 null', TP.parseHltbGamePage('<script id="__NEXT_DATA__" type="application/json">{oops</script>', 1), null);
+}
+
+/* ================================================================== */
+/* 导出：纯文本 / Excel                                                */
+/* ================================================================== */
+
+section('纯文本导出');
+{
+  const data = {
+    appid: 1245620,
+    name: '艾尔登法环',
+    family: { groupState: 'in_family' },
+    familySharing: true,
+    xgp: { on: true, tier: 'PC Game Pass', match: 'exact' },
+    denuvo: { has: true, drmList: ['Denuvo'], source: 'store-page-dom' },
+    dlc: { count: 3, items: [{ appid: 1, name: '黄金树幽影', priceText: '¥ 198.00', isFree: false }] },
+    deck: { category: 3, label: '已验证' },
+    proton: { tierLabel: '黄金', trendingLabel: '白金', total: 2102 },
+    anticheat: { anticheats: ['Easy Anti-Cheat'], statusLabel: '官方支持', kernel: true },
+    launcher: { launchers: ['Ubisoft Connect'], eula: true },
+    languages: { hasSimplifiedChinese: true, hasChineseAudio: false, languages: new Array(12).fill({}) },
+    regionAvailability: { cnAvailable: true },
+    regionPrices: [{ cc: 'cn', label: '国区', text: '¥ 298.00' }],
+    hltb: { main: 216436, mainExtra: 365048, completionist: 490307, match: 'steam-id' },
+    meta: { releaseDate: { date: '2022 年 2 月 24 日' } },
+  };
+  const txt = F.toText(data);
+  check('含标题行', txt.includes('艾尔登法环（App 1245620）'));
+  check('含区块标记', txt.includes('【核心信息】') && txt.includes('【多区价格】') && txt.includes('【DLC 明细】'));
+  check('含通关时长', txt.includes('通关时长') && txt.includes('60.1 小时'));
+  check('CRLF 换行', txt.includes('\r\n'));
+  check('含 D 加密', txt.includes('Denuvo'));
+}
+
+section('Excel 导出');
+{
+  const data = {
+    appid: 1245620,
+    name: '艾尔登法环',
+    family: { groupState: 'in_family' },
+    xgp: { on: false, tier: 'PC Game Pass' },
+    denuvo: { has: true, drmList: ['Denuvo'] },
+    dlc: { count: 0, items: [] },
+    hltb: { main: 216436, mainExtra: 365048, completionist: 490307, match: 'steam-id' },
+  };
+  const { rows, boldRows } = F.toSheetRows(data);
+  eq('表头', `${rows[0][0]}/${rows[0][1]}`, '项目/结果');
+  check('含游戏名称行', rows.some((r) => r[0] === '游戏名称' && r[1] === '艾尔登法环'));
+  check('含 AppID 行', rows.some((r) => r[0] === 'Steam AppID' && r[1] === 1245620));
+  check('加粗行非空', boldRows.length > 1);
+
+  const bytes = X.buildXlsx('测试表', rows, { boldRows });
+  check('生成字节', bytes.length > 800, bytes.length);
+  check('ZIP 魔数', bytes[0] === 0x50 && bytes[1] === 0x4b);
+
+  // 自己解 ZIP 验证内部结构完整
+  const buf = Buffer.from(bytes);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  check('有 EOCD', eocd > 0);
+  const total = buf.readUInt16LE(eocd + 10);
+  eq('条目数 6', total, 6);
+
+  const names = [];
+  let pos = buf.readUInt32LE(eocd + 16);
+  for (let n = 0; n < total; n++) {
+    const nameLen = buf.readUInt16LE(pos + 28);
+    const extraLen = buf.readUInt16LE(pos + 30);
+    const commentLen = buf.readUInt16LE(pos + 32);
+    names.push(buf.toString('utf8', pos + 46, pos + 46 + nameLen));
+    pos += 46 + nameLen + extraLen + commentLen;
+  }
+  for (const need of ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/styles.xml', 'xl/worksheets/sheet1.xml']) {
+    check(`含 ${need}`, names.includes(need));
+  }
+  check('base64 可编码', X.bytesToBase64(bytes).length > 1000);
 }
 
 /* ================================================================== */
@@ -295,11 +424,18 @@ if (process.argv.includes('--live')) {
       onInstalled: { addListener() {} },
       onStartup: { addListener() {} },
       getPlatformInfo: async () => ({ os: 'win' }),
+      openOptionsPage: async () => { globalThis.__optionsOpened = true; },
     },
     alarms: { create() {}, onAlarm: { addListener() {} } },
   };
 
   const bg = await import('../steam-insight/src/background.js');
+
+  // 「设置」按钮走的消息链路：内容脚本不能直接调 openOptionsPage，必须由后台代开
+  globalThis.__optionsOpened = false;
+  const optRes = await bg.handleMessage({ type: 'options:open' });
+  check('options:open 返回 ok', optRes && optRes.ok === true, optRes);
+  check('options:open 真的调用了 openOptionsPage', globalThis.__optionsOpened === true);
 
   // Node 环境的补齐，让请求尽量贴近浏览器：
   //  · 商店页需要 age-gate cookie（浏览器里用户通过一次年龄验证后本来就有）
@@ -355,6 +491,20 @@ if (process.argv.includes('--live')) {
     }
     if (appid === 1245620) {
       eq('艾尔登法环：端到端判定无 D 加密', res.denuvo.has, false);
+    }
+    if (appid === 1245620) {
+      // 注：Node 环境没有 declarativeNetRequest，HLTB 会因缺 Referer 被 CDN 挡（预期行为）。
+      // 扩展内的真实通过情况由 CDP 端到端测试覆盖。
+      check(
+        'HLTB 在 Node 下要么拿到数据，要么明确为空（Referer 由扩展的 DNR 规则提供）',
+        res.hltb === null || typeof res.hltb === 'object',
+        res.hltb ? `match=${res.hltb.match}` : 'null'
+      );
+      const txt = F.toText(res);
+      check('端到端：TXT 导出可用', txt.length > 300, txt.length);
+      const { rows, boldRows } = F.toSheetRows(res);
+      const xlsx = X.buildXlsx('t', rows, { boldRows });
+      check('端到端：Excel 可生成', xlsx.length > 1000, xlsx.length);
     }
   }
 

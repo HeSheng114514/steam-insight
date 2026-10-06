@@ -12,7 +12,8 @@ import {
   pruneExpired,
 } from './lib/cache.js';
 import { fetchJson, fetchText, fetchWithRetry, mapLimit, sleep } from './lib/net.js';
-import { toJson, toMarkdown } from './lib/format.js';
+import { toJson, toMarkdown, toSheetRows, toText } from './lib/format.js';
+import { buildXlsx, bytesToBase64 } from './lib/xlsx.js';
 import * as S from './lib/steam.js';
 import * as TP from './lib/sources.js';
 
@@ -213,21 +214,43 @@ let hltbTokenAt = 0;
 
 async function getHltbToken(force = false) {
   if (!force && hltbToken && Date.now() - hltbTokenAt < 5 * 60 * 1000) return hltbToken;
-  const json = await fetchJson(TP.hltbInitUrl(), { headers: { Accept: 'application/json' } });
-  if (json?.token) {
-    hltbToken = json.token;
-    hltbTokenAt = Date.now();
-    return hltbToken;
+  const res = await requestText(
+    TP.hltbInitUrl(),
+    { headers: { Accept: 'application/json' } },
+    { retries: 0, timeout: 20000 }
+  );
+  if (res.ok && res.text) {
+    try {
+      const json = JSON.parse(res.text);
+      if (json?.token) {
+        hltbToken = json.token;
+        hltbTokenAt = Date.now();
+        return hltbToken;
+      }
+    } catch {
+      /* 落到返回 null，由调用方降级 */
+    }
   }
   return null;
 }
 
-/** HLTB 搜索：token 绑定 IP + UA，必须与 init 同一上下文，且不能用自定义 UA */
-async function getHltb(name) {
+/**
+ * HLTB 通关时长。
+ *
+ * 关键：HLTB 的 CDN 要求 Referer 必须是它自己的域，否则稳定 403
+ * （只带 UA 时 403，加 Referer 立刻 200，已实测）。Referer 是浏览器接管的
+ * 禁止请求头，fetch 设不了，靠 manifest 里的 declarativeNetRequest 规则注入。
+ *
+ * 拿到 gameId 后，再抓一次游戏页用 profile_steam（= Steam AppID）核对，
+ * 避免同名作品串号；核对不上时在候选里换一个。
+ */
+async function getHltb(name, appid = null) {
   if (!name) return null;
   const key = `hltb:${TP.normalizeTitle(name)}`;
   return cachedFetch(key, TTL.hltb, async () => {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let candidates = [];
+
+    for (let attempt = 0; attempt < 2 && !candidates.length; attempt++) {
       const token = await getHltbToken(attempt > 0);
       if (!token) {
         hltbToken = null;
@@ -253,13 +276,39 @@ async function getHltb(name) {
         hltbToken = null;
         continue;
       }
-      const parsed = TP.parseHltbSearch(json, name);
-      if (parsed) return parsed;
-      // 搜索成功但没有任何结果 → 这个游戏确实不在 HLTB 里
-      if (json && json.count === 0) return { missing: true, permanent: true };
-      hltbToken = null;
+      if (Array.isArray(json?.data) && json.data.length) {
+        candidates = json.data;
+      } else if (json && json.count === 0) {
+        return { missing: true, permanent: true }; // 确实不在库里
+      } else {
+        hltbToken = null;
+      }
     }
-    return { missing: true };
+
+    if (!candidates.length) return { missing: true };
+
+    // 用解析器的打分逻辑选定首选
+    const first = TP.parseHltbSearch({ data: candidates }, name);
+    if (!first) return { missing: true };
+
+    // 没有 Steam AppID 可比对时，直接采用名称匹配结果
+    if (!appid) return first;
+
+    // 有 AppID：抓游戏页核对 profile_steam
+    const order = [first.gameId, ...candidates.map((c) => c.game_id).filter((id) => id !== first.gameId)];
+    for (const gameId of order.slice(0, 4)) {
+      const page = await requestText(
+        TP.hltbGameUrl(gameId),
+        { headers: TP.HLTB_BROWSER_HEADERS },
+        { retries: 0, timeout: 20000 }
+      );
+      if (!page.ok || !page.text) continue;
+      const verified = TP.parseHltbGamePage(page.text, appid);
+      if (verified) return verified;
+    }
+
+    // 核对不上就退回名称匹配结果，但标注为近似
+    return { ...first, match: 'approx' };
   });
 }
 
@@ -374,7 +423,7 @@ async function getAppData(appid, opts = {}) {
     proton: wantProton ? getProton(appid) : Promise.resolve(null),
     awacyIndex: wantAc ? getAwacyIndex() : Promise.resolve(null),
     xgpIndex: wantXgp ? getXgpIndex() : Promise.resolve(null),
-    hltb: wantHltb ? getHltb(englishName) : Promise.resolve(null),
+    hltb: wantHltb ? getHltb(englishName, appid) : Promise.resolve(null),
     dlc: cn.dlcIds?.length ? getDlcItems(cn.dlcIds, 'cn', lang) : Promise.resolve([]),
     family: settings.fetchFamilyGroup
       ? getFamilyLibrary({ mySteamId: opts.mySteamId })
@@ -570,10 +619,17 @@ async function getSourcesStatus() {
   const [awacy, xgp] = await Promise.all([getAwacyIndex(), getXgpIndex()]);
   const [proton, hltb, family] = await Promise.all([
     getProton(1245620),
-    getHltb('Elden Ring'),
+    getHltb('Elden Ring', 1245620),
     getFamilyLibrary(),
   ]);
   const deck = await getDeck(1245620, 'schinese');
+  let dnrRules = null;
+  try {
+    const rules = await chrome.declarativeNetRequest.getEnabledRulesets();
+    dnrRules = rules;
+  } catch {
+    dnrRules = null;
+  }
   return {
     steamAppDetails: true,
     steamDeck: !!(deck && !deck.missing),
@@ -581,6 +637,8 @@ async function getSourcesStatus() {
     xgp: { ok: !xgp.failed, entries: xgp.count, builtAt: xgp.builtAt },
     proton: !!(proton && !proton.missing),
     hltb: !!(hltb && !hltb.missing),
+    hltbVerified: hltb?.match === 'steam-id',
+    dnrRulesets: dnrRules,
     family: family.state,
   };
 }
@@ -611,6 +669,14 @@ async function handleMessage(msg) {
       return { text: toMarkdown(msg.data, { includeRaw: !!msg.includeRaw }) };
     case 'export:json':
       return { text: toJson(msg.data) };
+    case 'export:text':
+      return { text: toText(msg.data) };
+    case 'export:xlsx': {
+      const { rows, boldRows } = toSheetRows(msg.data);
+      const name = String(msg.data?.name || `App ${msg.data?.appid}`).slice(0, 31);
+      const bytes = buildXlsx(name || 'Steam', rows, { boldRows });
+      return { base64: bytesToBase64(bytes) };
+    }
     case 'cache:clearApp': {
       const appid = Number(msg.appid);
       if (!appid) return { cleared: 0 };
@@ -638,6 +704,14 @@ async function handleMessage(msg) {
     }
     case 'sources:status':
       return getSourcesStatus();
+    case 'options:open':
+      // openOptionsPage 只在扩展上下文可用，内容脚本调不到，所以由后台代开
+      try {
+        await chrome.runtime.openOptionsPage();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err) };
+      }
     case 'ping':
       return { ok: true };
     default:

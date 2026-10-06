@@ -26,7 +26,7 @@
 - **国区是否可购买**
 - **多区价格对比**：国区 / 美区 / 阿根廷 / 土耳其 / 俄区 / 印度 / 巴西（区域可自选）
 - **通关时长**（HowLongToBeat）：主线 / 主线+支线 / 全收集
-- **一键复制为 Markdown / 导出 JSON**
+- **一键导出**：复制为 Markdown，或下载 TXT / Excel / JSON
 
 ## 安装
 
@@ -50,7 +50,7 @@
 | Xbox Game Pass | `catalog.gamepass.com` + `displaycatalog.mp.microsoft.com` | 12 小时 |
 | 反作弊 | [AreWeAntiCheatYet](https://github.com/AreWeAntiCheatYet/AreWeAntiCheatYet) 的 `games.json` | 24 小时 |
 | ProtonDB | `www.protondb.com/api/v1/reports/summaries/{appid}.json` | 24 小时 |
-| 通关时长 | `howlongtobeat.com/api/search/site` | 7 天 |
+| 通关时长 | `howlongtobeat.com/api/search/site` + 游戏页 `__NEXT_DATA__` | 7 天 |
 | 我的家庭组 | `pointssummary/ajaxgetasyncconfig` → `IFamilyGroupsService` | 15 分钟 |
 
 所有请求都在扩展的 Service Worker 里发出；Steam 之外的调用只发送游戏标识（AppID 或游戏名）。
@@ -59,19 +59,23 @@
 
 内容脚本只做两件事：读当前页面 DOM、渲染结果。所有网络请求、缓存与数据聚合都在 Service Worker 中完成，通过消息通信。这样做的原因是：Steam 接口与 ProtonDB / HowLongToBeat 都不返回 CORS 头，必须在后台发起。
 
+导出（Markdown / TXT / Excel / JSON）全部在本地生成，不经过任何服务器。Excel 是在扩展内直接拼装的 XLSX（`src/lib/xlsx.js`，零依赖），不引入任何第三方库。
+
 ```
 steam-insight/
 ├── manifest.json
 ├── icons/
 └── src/
     ├── background.js        Service Worker：网络请求、缓存、聚合
+    ├── rules.json           declarativeNetRequest 规则（给 HLTB 注入 Referer）
     ├── lib/
     │   ├── constants.js     区域、反作弊白名单、TTL、默认设置
     │   ├── net.js           带超时/重试的 fetch、并发限制
     │   ├── cache.js         chrome.storage.local 上的 TTL 缓存
     │   ├── steam.js         Steam 接口 URL 构造 + 纯解析（含商店页 DRM 解析）
     │   ├── sources.js       XGP / AreWeAntiCheatYet / ProtonDB / HLTB 解析
-    │   └── format.js        Markdown / JSON 导出
+    │   ├── format.js        Markdown / 纯文本 / 表格数据
+    │   └── xlsx.js          零依赖 XLSX 生成（自己拼 ZIP + XML）
     ├── content/             读 DOM + 渲染
     ├── options.html/js      设置页
     └── popup.html/js        工具栏弹窗
@@ -92,7 +96,7 @@ steam-insight/
 1. **D 加密只反映 Steam 商店页上的第三方 DRM 声明**。若该页被年龄验证拦截，面板会明确显示"需要先通过年龄验证"，而不是当作没有 D 加密。
 2. **XGP 是名称匹配**。微软官方数据里没有 Steam AppID，扩展用归一化后的英文标题做精确匹配，退化时标"疑似"。同名重制版可能误判。
 3. **家庭组依赖非公开接口**，未登录时只显示"支持家庭共享"标记。
-4. **HowLongToBeat 有反爬**，token 绑定 IP + UA，且 CDN 会限流；失败时该行不显示，10 分钟后重试。
+4. **HowLongToBeat 有反爬**。它的 CDN 要求 `Referer` 必须来自自己的域名，否则直接 403；而 `Referer` 是浏览器接管的禁止请求头，脚本设不了。扩展用 `declarativeNetRequest` 注入一条规则解决（见 `src/rules.json`），该规则已用真实浏览器实测有效。取到候选后还会再抓一次 HLTB 游戏页、用页面里的 `profile_steam`（就是 Steam AppID）核对，避免同名作品串号；核对不上会标注"近似匹配"。仍失败时面板会写明"未取到"，10 分钟后重试。
 5. **"内核级反作弊"是按名称白名单推断的**，AreWeAntiCheatYet 本身没有这个字段。
 6. **多区价格**只反映 Steam 在所选区域的标价，不含锁区、支付方式与税费差异；阿根廷和土耳其自 2023 年 11 月起改为美元计价。
 
@@ -125,7 +129,16 @@ node selftest.mjs
 node selftest.mjs --live
 ```
 
-测试用真实抓取的数据做断言（真实 Steam 商店页、真实接口响应），不是构造的假数据。离线部分 84 项，联网端到端 94 项。
+测试用真实抓取的数据做断言（真实 Steam 商店页、真实接口响应），不是构造的假数据。离线部分 **115 项**，联网端到端 **128 项**。
+
+注意：在 Node 下跑 `--live` 时，`通关时长` 会取不到，这是**预期行为** —— `declarativeNetRequest` 只在真实扩展环境里存在，Node 里没有它，HLTB 就会因缺 `Referer` 被 CDN 挡。扩展里是否真的可用，用下面的 CDP 方式验证：
+
+```bash
+# 真实加载扩展并用 CDP 驱动，验证 HLTB 与导出（需 Edge + 代理）
+node e2e-extension.mjs
+```
+
+它会启动一个独立的 Edge 实例加载扩展，在扩展自己的页面上下文里走完整的消息链路，检查通关时长、DNR 规则与三种导出格式。
 
 ## 许可证
 

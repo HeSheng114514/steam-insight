@@ -43,7 +43,10 @@
 
 #si-panel .si-head-actions {
   display: flex;
-  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 72%;
 }
 
 #si-panel .si-btn {
@@ -52,16 +55,22 @@
   background: #2c3e50;
   color: #c7d5e0;
   border-radius: 3px;
-  padding: 3px 8px;
+  padding: 3px 7px;
   font-size: 11px;
   line-height: 1.4;
   cursor: pointer;
   font-family: inherit;
+  white-space: nowrap;
 }
 
 #si-panel .si-btn:hover {
   background: #3d5a75;
   color: #fff;
+}
+
+#si-panel .si-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 #si-panel .si-panel-body {

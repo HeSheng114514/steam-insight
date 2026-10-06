@@ -105,9 +105,44 @@ def verify(zip_path, manifest):
             problems.append("ZIP 内 manifest.json 与源文件不一致")
         if inner.get("manifest_version") != 3:
             problems.append("不是 Manifest V3")
+
+        # 权限白名单：多一个都要在商店审核里解释，所以这里严格卡住
+        ALLOWED_PERMISSIONS = {
+            "storage": "保存设置与查询缓存",
+            "unlimitedStorage": "Game Pass / 反作弊索引体积较大，需要更多本地缓存空间",
+            "alarms": "定期清理过期缓存",
+            "declarativeNetRequest": (
+                "给 howlongtobeat.com 的请求注入 Referer 头。"
+                "该站 CDN 要求 Referer 必须是它自己的域，而 Referer 属于浏览器接管的"
+                "禁止请求头，fetch 无法设置，只能用 DNR 规则注入。"
+            ),
+        }
         for perm in inner.get("permissions", []):
-            if perm not in ("storage", "unlimitedStorage", "alarms"):
+            if perm not in ALLOWED_PERMISSIONS:
                 problems.append(f"出现了意料之外的权限: {perm}")
+
+        # DNR 规则必须真的存在且格式正确，否则 HLTB 会静默失败
+        dnr = inner.get("declarative_net_request", {})
+        for res in dnr.get("rule_resources", []):
+            rule_path = res.get("path")
+            if rule_path not in names:
+                problems.append(f"DNR 规则文件不在包里: {rule_path}")
+                continue
+            try:
+                rules = json.loads(z.read(rule_path).decode("utf-8"))
+            except Exception as exc:
+                problems.append(f"DNR 规则不是合法 JSON: {rule_path} ({exc})")
+                continue
+            if not isinstance(rules, list) or not rules:
+                problems.append(f"DNR 规则为空: {rule_path}")
+                continue
+            headers = [
+                h.get("header")
+                for rule in rules
+                for h in rule.get("action", {}).get("requestHeaders", [])
+            ]
+            if "Referer" not in headers:
+                problems.append(f"DNR 规则没有注入 Referer: {rule_path}")
 
         uncompressed = sum(i.file_size for i in z.infolist())
 

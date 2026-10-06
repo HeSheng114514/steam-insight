@@ -52,7 +52,7 @@ Steam 洞察：在 Steam 商店页和列表页，一眼看清这款游戏值不�
 · 国区是否可购买
 · 多区价格对比：国区 / 美区 / 阿根廷 / 土耳其 / 俄区 / 印度 / 巴西（区域可自选）
 · 通关时长（HowLongToBeat）：主线 / 主线+支线 / 全收集
-· 一键复制为 Markdown、导出 JSON，方便发群或存档
+· 一键导出：复制为 Markdown，或下载 TXT / Excel / JSON，方便发群、存档或自己整理比价表
 
 【列表页也有用】
 在愿望单、搜索结果、特卖和标签页，每个游戏下方会显示一排小徽章：有没有 XGP、有没有 D 加密、家庭库有没有、DLC 数量、Steam Deck 状态、内核级反作弊。滚动到哪就查哪，不会一次性打出一堆请求。
@@ -92,7 +92,7 @@ ALSO INCLUDED
 · Whether the game is purchasable in your region
 · Regional price comparison (configurable)
 · How long to beat: main story / main + extra / completionist
-· Copy as Markdown or export JSON in one click
+· Export in one click: copy as Markdown, or download TXT / Excel / JSON for sharing or archiving
 
 IN LIST VIEWS
 Wishlist, search results, sales and tag pages get a row of compact badges per game: Game Pass, Denuvo, family library, DLC count, Steam Deck status, kernel-level anti-cheat. Only rows you scroll into view are queried.
@@ -154,6 +154,22 @@ This extension has one purpose: while the user browses the Steam store, show the
 ```
 Saves the user's own preferences (which sections to show, which regions to compare) and a local cache of lookup results, so that revisiting the same game page does not repeat network requests. Everything stays in the browser's local extension storage on the user's own device; nothing is uploaded anywhere.
 ```
+
+### 5.2b declarativeNetRequest justification（v1.1.0 新增）
+
+> v1.1.0 起新增了这个权限。**如果 1.0.0 已经上架，上传新版本时务必回来补上这一条**，否则可能被以「权限用途未说明」退回。
+
+**中文**
+```
+仅用于一条规则：给发往 howlongtobeat.com 的请求补上 Referer 请求头。该站的 CDN 要求 Referer 必须来自它自己的域名，否则直接返回 403；而 Referer 属于浏览器接管的禁止请求头，网页脚本无法自行设置，只能通过声明式规则注入。规则只作用于 howlongtobeat.com，不读取、不修改任何页面内容，也不涉及用户的浏览数据。
+```
+
+**English**
+```
+Used for exactly one rule: adding the Referer request header to requests sent to howlongtobeat.com. That site's CDN requires the Referer to come from its own domain and otherwise returns 403; because Referer is a browser-controlled forbidden header, a script cannot set it, so a declarative rule is the only way. The rule applies only to howlongtobeat.com. It does not read or modify any page content and does not involve the user's browsing data.
+```
+
+> 审核若追问「为什么需要这个权限」，把上面那段原样回复，并补充一句：**该扩展只使用 1 条 DNR 规则，规则内容随包提供、可在 `src/rules.json` 中查看。**
 
 ### 5.3 unlimitedStorage justification
 
@@ -264,17 +280,30 @@ All JavaScript is bundled inside the extension package. There are no script tags
 | 扩展图标 | 128×128 PNG | 已生成：`store-assets/icon-128.png` |
 | Edge 商店 Logo | 300×300 PNG | 已生成：`store-assets/logo-300x300.png` |
 | 小型宣传图块 | 440×280 PNG | 已生成：`store-assets/promo-440x280.png` |
-| **屏幕截图（必填，至少 1 张）** | **1280×800** 或 640×400（Edge 可用 1280×800 / 640×480） | **必须你自己截**，见下 |
+| **屏幕截图（必填，至少 1 张）** | **1280×800** | 已生成 1 张，见下 |
 
-### 截图怎么弄（这是唯一我替你做不了的）
+### 截图
 
-商店明确要求截图必须真实反映扩展的实际外观，不能用设计稿或合成图冒充。步骤：
+`store-assets/screenshots/` 下已有一张 **1280×800** 的真机截图：
 
-1. 在 Chrome/Edge 里加载好扩展，打开一个 Steam 游戏页（建议挑信息量大的，比如《黑神话：悟空》这种有 D 加密 + 多区价格的）。
-2. 按 `F12` 打开开发者工具 → 点左上角的**设备工具栏图标**（或按 `Ctrl+Shift+M`）。
-3. 在顶部的尺寸下拉里选 **Responsive**，手动把宽高填成 `1280` × `800`。
-4. 点设备工具栏右上角的**三个点 → Capture screenshot**，会直接存下一张 1280×800 的 PNG。
-5. 建议截 3–5 张：① 游戏详情页完整面板 ② 面板下半部分（Deck/ProtonDB/反作弊/多区价格/DLC 明细）③ 愿望单或搜索页的徽章 ④ 设置页 ⑤ 导出 JSON 的提示。
-6. 列在 `store-assets/screenshots/` 下即可，文件名随意。
+| 文件 | 内容 |
+| --- | --- |
+| `detail-2358720.png` | 《黑神话：悟空》商店页右侧面板（含 D 加密 / 不支持家庭共享 / XGP 不在库 / Deck / ProtonDB / 多区价格 / 通关时长 / DLC 明细） |
 
-> 宣传图块（440×280）我生成的是纯品牌图，不含任何界面截图，所以不属于"伪造截图"，可以放心用。
+**它是真实渲染的**：脚本会启动一个独立的 Edge 实例、加载扩展、打开 Steam 页面、等面板把数据都取完，然后用 CDP 的 `Page.captureScreenshot` 截下 1280×800。所以它满足商店「截图必须反映实际外观、不能用设计稿冒充」的要求。
+
+自己再补几张（建议不同角度，商店喜欢 3–5 张）：
+
+```powershell
+cd "D:\DeepSeek-Harness\D-Steam插件（Steam 洞察）\steam-insight-dev"
+
+# 换游戏截（参数是 Steam AppID）
+node screenshot.mjs 1091500     # Cyberpunk 2077（有折扣，能体现价格行）
+node screenshot.mjs 1245620     # 艾尔登法环（注意：会被 Steam 年龄门槛挡住，别用这个）
+```
+
+> **注意**：带年龄门槛的游戏（如艾尔登法环、只狼）会被 Steam 重定向到 `/agecheck/`，内容脚本不匹配该路径，面板不会出现。挑游戏时先在浏览器里确认能直接打开商店页。
+>
+> 想手动截也行：`F12` → `Ctrl+Shift+M` 设备工具栏 → 尺寸填 `1280×800` → 三个点 → **Capture screenshot**。
+
+> 宣传图块（440×280）是纯品牌图、不含界面截图，不属于"伪造截图"，可以放心用。
