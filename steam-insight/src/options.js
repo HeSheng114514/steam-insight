@@ -102,14 +102,16 @@ document.getElementById('btnStatus').addEventListener('click', async () => {
         ? res.hltbVerified
           ? '✅ 可用（已用 Steam AppID 核对）'
           : '✅ 可用（名称匹配）'
-        : '❌ 失败'
+        : `❌ 失败（原因代码：${res.hltbReason || '未知'}）`
     }`,
-    `Referer 注入规则（DNR）：${
-      Array.isArray(res.dnrRulesets)
-        ? res.dnrRulesets.includes('howlongtobeat_referer')
-          ? '✅ 已启用'
-          : '❌ 未启用（HLTB 会失败）'
-        : '— 无法读取'
+    `Referer 注入规则：${
+      res.hltbRule && res.hltbRule.available
+        ? res.hltbRule.staticEnabled
+          ? '✅ 静态规则已启用'
+          : res.hltbRule.dynamicCount > 0
+          ? '✅ 已通过动态规则注册'
+          : '❌ 未生效（HLTB 会失败）'
+        : '❌ declarativeNetRequest 不可用（该浏览器可能不支持）'
     }`,
     `家庭组：${
       {

@@ -355,9 +355,19 @@
           'unknown'
         );
       }
-    } else if (data.hltb === null || data.hltb === undefined) {
-      // 显式说明为什么没有这一行，避免用户以为是插件坏了
-      addRow('通关时长', '未取到（HowLongToBeat 无数据或被限流，10 分钟后自动重试）', 'unknown');
+    } else {
+      // 明确区分原因，别让用户以为插件坏了或只能干等
+      const h = data.hltb;
+      const reason = h?.blocked
+        ? 'HowLongToBeat 拒绝了请求（Referer 规则未生效）。请到扩展管理页点「重新加载」扩展，再点这里的刷新'
+        : h?.reason === 'no_result'
+        ? 'HowLongToBeat 库里没有这款游戏'
+        : h?.reason === 'no_match'
+        ? 'HowLongToBeat 有数据但未能匹配到本作'
+        : h?.reason === 'no_dnr'
+        ? '浏览器不支持所需权限（declarativeNetRequest），无法访问 HowLongToBeat'
+        : 'HowLongToBeat 暂时没有响应（网络问题），点刷新可立即重试';
+      addRow('通关时长', `未取到 · ${reason}`, 'unknown');
     }
     if (data.meta && data.meta.releaseDate && data.meta.releaseDate.date) {
       addRow('发行日期', data.meta.releaseDate.date);
@@ -405,7 +415,15 @@
   }
 
   async function loadDetail(appid, force) {
-    if (force) await send({ type: 'cache:clearApp', appid });
+    if (force) {
+      // 必须带上游戏名：HLTB 的缓存键是按名字而不是 appid，
+      // 不带就会出现「点了刷新仍显示未取到」
+      await send({
+        type: 'cache:clearApp',
+        appid,
+        name: lastData?.englishName || lastData?.name,
+      });
+    }
     const res = await send({
       type: 'app:data',
       appid,

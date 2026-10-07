@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Steam 洞察 · Steam Insight",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "在 Steam 商店页与列表页显示：家庭库、DLC、Xbox Game Pass、Denuvo(D加密)、Steam Deck / ProtonDB、反作弊、中文支持、多区价格与通关时长。",
   "minimum_chrome_version": "109",
   "icons": {

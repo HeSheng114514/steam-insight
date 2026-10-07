@@ -80,6 +80,85 @@ async function requestText(url, options = {}, cfg = {}) {
 }
 
 /* ------------------------------------------------------------------ */
+/* HLTB 的 Referer 规则                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * HowLongToBeat 的 CDN 要求 Referer 必须来自它自己的域，否则一律 403；
+ * 而 Referer 是浏览器接管的禁止请求头，fetch 设不了（`referrer` 选项、
+ * 手写 Origin 头都实测无效）。只能用 declarativeNetRequest 注入。
+ *
+ * 静态规则（manifest 的 rule_resources）在某些环境下可能没生效——例如
+ * 扩展没被重新加载、或 Steam 内置浏览器对静态规则支持不完整。
+ * 所以这里在后台启动时**再用动态规则注册一遍**（实测可以独立工作），
+ * 两套并存，谁生效都行，让 HLTB 不再依赖单一加载路径。
+ */
+const HLTB_RULE_ID = 9911;
+const HLTB_RULE = {
+  id: HLTB_RULE_ID,
+  priority: 1,
+  action: {
+    type: 'modifyHeaders',
+    requestHeaders: [
+      { header: 'Referer', operation: 'set', value: TP.HLTB_REFERER },
+    ],
+  },
+  condition: {
+    urlFilter: '||howlongtobeat.com/',
+    resourceTypes: ['xmlhttprequest', 'other'],
+  },
+};
+
+/** 返回 true 表示规则已就绪（静态或动态任一可用） */
+async function ensureHltbRule() {
+  const dnr = chrome.declarativeNetRequest;
+  if (!dnr) return false;
+  try {
+    const enabled = await dnr.getEnabledRulesets?.();
+    const staticOk = Array.isArray(enabled) && enabled.includes(TP.HLTB_RULE_ID);
+    if (staticOk) return true;
+  } catch {
+    /* 读不到就继续尝试动态规则 */
+  }
+  try {
+    const existing = await dnr.getDynamicRules();
+    if (!existing.some((r) => r.id === HLTB_RULE_ID)) {
+      await dnr.updateDynamicRules({
+        removeRuleIds: [HLTB_RULE_ID],
+        addRules: [HLTB_RULE],
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 诊断：把 Referer 规则的真实状态暴露给设置页 */
+async function getHltbRuleStatus() {
+  const dnr = chrome.declarativeNetRequest;
+  if (!dnr) return { available: false, reason: 'declarativeNetRequest 不可用' };
+  let staticEnabled = null;
+  let dynamicCount = null;
+  try {
+    const e = await dnr.getEnabledRulesets();
+    staticEnabled = Array.isArray(e) && e.includes(TP.HLTB_RULE_ID);
+  } catch {}
+  try {
+    const d = await dnr.getDynamicRules();
+    dynamicCount = d.filter((r) => r.id === HLTB_RULE_ID).length;
+  } catch {}
+  return { available: true, staticEnabled, dynamicCount };
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensureHltbRule();
+});
+chrome.runtime.onStartup.addListener(() => {
+  ensureHltbRule();
+});
+
+/* ------------------------------------------------------------------ */
 /* Steam 官方接口                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -237,9 +316,8 @@ async function getHltbToken(force = false) {
 /**
  * HLTB 通关时长。
  *
- * 关键：HLTB 的 CDN 要求 Referer 必须是它自己的域，否则稳定 403
- * （只带 UA 时 403，加 Referer 立刻 200，已实测）。Referer 是浏览器接管的
- * 禁止请求头，fetch 设不了，靠 manifest 里的 declarativeNetRequest 规则注入。
+ * Referer 是硬性前提（见 ensureHltbRule 的注释），所以每次取数前都先确认
+ * 规则就绪；失败时把**具体原因**带回去，面板会照实显示，而不是笼统说"被限流"。
  *
  * 拿到 gameId 后，再抓一次游戏页用 profile_steam（= Steam AppID）核对，
  * 避免同名作品串号；核对不上时在候选里换一个。
@@ -248,11 +326,24 @@ async function getHltb(name, appid = null) {
   if (!name) return null;
   const key = `hltb:${TP.normalizeTitle(name)}`;
   return cachedFetch(key, TTL.hltb, async () => {
+    // 每次取数前确保规则在位（静态没生效就补动态规则）
+    const ruleReady = await ensureHltbRule();
+
     let candidates = [];
+    let lastInitStatus = 0;
+    let lastSearchStatus = 0;
+    let lastError = null;
 
     for (let attempt = 0; attempt < 2 && !candidates.length; attempt++) {
       const token = await getHltbToken(attempt > 0);
       if (!token) {
+        const initRes = await requestText(
+          TP.hltbInitUrl(),
+          { headers: { Accept: 'application/json' } },
+          { retries: 0, timeout: 20000 }
+        );
+        lastInitStatus = initRes.status;
+        lastError = initRes.ok ? 'no_token' : `init_${initRes.status}`;
         hltbToken = null;
         continue;
       }
@@ -265,8 +356,10 @@ async function getHltb(name, appid = null) {
         },
         { retries: 0, timeout: 20000 }
       );
+      lastSearchStatus = res.status;
       if (!res.ok || !res.text) {
         hltbToken = null;
+        lastError = `search_${res.status}`;
         continue;
       }
       let json = null;
@@ -274,22 +367,36 @@ async function getHltb(name, appid = null) {
         json = JSON.parse(res.text);
       } catch {
         hltbToken = null;
+        lastError = 'search_badJson';
         continue;
       }
       if (Array.isArray(json?.data) && json.data.length) {
         candidates = json.data;
       } else if (json && json.count === 0) {
-        return { missing: true, permanent: true }; // 确实不在库里
+        // 真的不在库里：算"确实没有"，按成功 TTL 缓存，避免反复白跑
+        return { missing: true, permanent: true, reason: 'no_result' };
       } else {
         hltbToken = null;
+        lastError = 'search_empty';
       }
     }
 
-    if (!candidates.length) return { missing: true };
+    if (!candidates.length) {
+      // 关键区分：403 基本就是 Referer 规则没生效；其它情况更可能是网络问题
+      const blocked = lastInitStatus === 403 || lastSearchStatus === 403;
+      return {
+        missing: true,
+        reason: blocked ? (ruleReady ? 'blocked_403' : 'no_dnr') : lastError || 'unknown',
+        blocked,
+        ruleReady,
+        initStatus: lastInitStatus,
+        searchStatus: lastSearchStatus,
+      };
+    }
 
     // 用解析器的打分逻辑选定首选
     const first = TP.parseHltbSearch({ data: candidates }, name);
-    if (!first) return { missing: true };
+    if (!first) return { missing: true, reason: 'no_match' };
 
     // 没有 Steam AppID 可比对时，直接采用名称匹配结果
     if (!appid) return first;
@@ -623,13 +730,7 @@ async function getSourcesStatus() {
     getFamilyLibrary(),
   ]);
   const deck = await getDeck(1245620, 'schinese');
-  let dnrRules = null;
-  try {
-    const rules = await chrome.declarativeNetRequest.getEnabledRulesets();
-    dnrRules = rules;
-  } catch {
-    dnrRules = null;
-  }
+  const ruleStatus = await getHltbRuleStatus();
   return {
     steamAppDetails: true,
     steamDeck: !!(deck && !deck.missing),
@@ -638,7 +739,9 @@ async function getSourcesStatus() {
     proton: !!(proton && !proton.missing),
     hltb: !!(hltb && !hltb.missing),
     hltbVerified: hltb?.match === 'steam-id',
-    dnrRulesets: dnrRules,
+    hltbReason: hltb?.missing ? hltb.reason || null : null,
+    hltbRule: ruleStatus,
+    dnrRulesets: ruleStatus.staticEnabled ? ['howlongtobeat_referer'] : [],
     family: family.state,
   };
 }
@@ -689,6 +792,13 @@ async function handleMessage(msg) {
       ]) {
         cleared += await cacheRemoveByPrefix(prefix);
       }
+      // HLTB 的缓存键是按「游戏名」而不是 appid，必须额外清掉，
+      // 否则一次失败会被缓存放进 10 分钟短 TTL，点「刷新」也没用。
+      if (msg.name) {
+        cleared += await cacheRemoveByPrefix(`hltb:${TP.normalizeTitle(msg.name)}`);
+      }
+      // 清完顺便重置 token，让下一次请求重新取
+      hltbToken = null;
       return { cleared };
     }
     case 'cache:clear': {

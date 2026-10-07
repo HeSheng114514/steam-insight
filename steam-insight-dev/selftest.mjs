@@ -396,6 +396,58 @@ section('缓存 cacheWrap');
 }
 
 /* ================================================================== */
+/* HLTB Referer 规则：静态失效时必须有动态兜底                          */
+/* ================================================================== */
+
+section('HLTB Referer 规则兜底');
+{
+  const dyn = [];
+  globalThis.__ruleMockDyn = dyn; // 供后面的 --live section 读取同一份状态
+  let staticEnabled = false;
+  globalThis.chrome = {
+    storage: {
+      local: {
+        async get() { return {}; },
+        async set() {},
+        async remove() {},
+      },
+    },
+    runtime: {
+      onMessage: { addListener() {} },
+      onInstalled: { addListener() {} },
+      onStartup: { addListener() {} },
+      getPlatformInfo: async () => ({ os: 'win' }),
+    },
+    alarms: { create() {}, onAlarm: { addListener() {} } },
+    declarativeNetRequest: {
+      async getEnabledRulesets() { return staticEnabled ? ['howlongtobeat_referer'] : []; },
+      async getDynamicRules() { return [...dyn]; },
+      async updateDynamicRules({ removeRuleIds = [], addRules = [] }) {
+        for (const id of removeRuleIds) {
+          const i = dyn.findIndex((r) => r.id === id);
+          if (i >= 0) dyn.splice(i, 1);
+        }
+        dyn.push(...addRules);
+      },
+    },
+  };
+
+  const bg2 = await import('../steam-insight/src/background.js');
+  const status1 = await bg2.handleMessage({ type: 'sources:status' });
+
+  eq('静态规则缺失时已注册动态规则', dyn.length, 1);
+  eq('动态规则 id 固定', dyn[0] && dyn[0].id, 9911);
+  eq('注入的是 Referer', dyn[0] && dyn[0].action.requestHeaders[0].header, 'Referer');
+  eq('Referer 值正确', dyn[0] && dyn[0].action.requestHeaders[0].value, 'https://howlongtobeat.com/');
+  eq('规则只作用于 howlongtobeat', dyn[0] && dyn[0].condition.urlFilter, '||howlongtobeat.com/');
+  check('设置页能读到规则状态', status1.hltbRule && status1.hltbRule.available === true, JSON.stringify(status1.hltbRule));
+
+  // 幂等：再跑一次不应重复注册
+  await bg2.handleMessage({ type: 'sources:status' });
+  eq('重复检查不会重复注册', dyn.length, 1);
+}
+
+/* ================================================================== */
 /* 真实网络端到端                                                      */
 /* ================================================================== */
 
@@ -427,6 +479,23 @@ if (process.argv.includes('--live')) {
       openOptionsPage: async () => { globalThis.__optionsOpened = true; },
     },
     alarms: { create() {}, onAlarm: { addListener() {} } },
+    // 模拟静态规则没加载的环境：只提供动态规则 API
+    declarativeNetRequest: (() => {
+      const dyn = [];
+      globalThis.__dynRules = dyn;
+      globalThis.__staticEnabled = false;
+      return {
+        async getEnabledRulesets() { return globalThis.__staticEnabled ? ['howlongtobeat_referer'] : []; },
+        async getDynamicRules() { return [...dyn]; },
+        async updateDynamicRules({ removeRuleIds = [], addRules = [] }) {
+          for (const id of removeRuleIds) {
+            const i = dyn.findIndex((r) => r.id === id);
+            if (i >= 0) dyn.splice(i, 1);
+          }
+          dyn.push(...addRules);
+        },
+      };
+    })(),
   };
 
   const bg = await import('../steam-insight/src/background.js');
@@ -436,6 +505,26 @@ if (process.argv.includes('--live')) {
   const optRes = await bg.handleMessage({ type: 'options:open' });
   check('options:open 返回 ok', optRes && optRes.ok === true, optRes);
   check('options:open 真的调用了 openOptionsPage', globalThis.__optionsOpened === true);
+
+  // HLTB 的 Referer 规则兜底：静态没生效时必须自动补动态规则。
+  // 注意：background.js 已经被前面的离线 section 导入过（模块缓存），
+  // 它持有的是那次导入时的 chrome mock，所以这里要读那个 mock 的规则状态，
+  // 而不是本 section 新建的这一个。
+  const liveRuleStatus = await bg.handleMessage({ type: 'sources:status' }).then((s) => s.hltbRule);
+  const liveDyn = globalThis.__ruleMockDyn || [];
+  check('规则状态可上报（供设置页显示）', liveRuleStatus && liveRuleStatus.available === true, JSON.stringify(liveRuleStatus));
+  check(
+    '静态规则缺失时自动注册了动态规则',
+    Array.isArray(liveDyn) && liveDyn.length > 0,
+    JSON.stringify(liveDyn)
+  );
+  const liveRule = liveDyn[0];
+  check('动态规则注入了 Referer', !!liveRule && liveRule.action.requestHeaders[0].header === 'Referer');
+  check(
+    '动态规则的 Referer 值正确',
+    !!liveRule && liveRule.action.requestHeaders[0].value === 'https://howlongtobeat.com/',
+    liveRule && liveRule.action.requestHeaders[0].value
+  );
 
   // Node 环境的补齐，让请求尽量贴近浏览器：
   //  · 商店页需要 age-gate cookie（浏览器里用户通过一次年龄验证后本来就有）
